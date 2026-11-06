@@ -1,0 +1,80 @@
+﻿<Window x:Class="commivoy_app.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Задача коммивояжёра — генетический алгоритм"
+        Height="760" Width="1150"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Панель параметров -->
+        <ScrollViewer Grid.Column="0"
+              Margin="0,0,10,0"
+              VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,6,0">
+                <TextBlock Text="Параметры задачи" FontWeight="Bold" Margin="0,0,0,6"/>
+
+            <TextBlock Text="Число городов:"/>
+            <TextBox x:Name="TbCities" Text="15" Margin="0,0,0,8"/>
+
+            <TextBlock Text="Параметры ГА" FontWeight="Bold" Margin="0,8,0,6"/>
+
+            <TextBlock Text="Размер популяции:"/>
+            <TextBox x:Name="TbPop" Text="100" Margin="0,0,0,8"/>
+
+            <TextBlock Text="Число поколений:"/>
+            <TextBox x:Name="TbGens" Text="300" Margin="0,0,0,8"/>
+
+            <TextBlock Text="Вероятность мутации:"/>
+            <TextBox x:Name="TbMut" Text="0.2" Margin="0,0,0,8"/>
+
+            <TextBlock Text="Потоков:"/>
+            <TextBox x:Name="TbThreads" Text="4" Margin="0,0,0,8"/>
+
+            <TextBlock Text="Seed (пусто = случайный):"/>
+            <TextBox x:Name="TbSeed" Text="42" Margin="0,0,0,12"/>
+
+            <Button x:Name="BtnStart" Content="Запустить" Height="30"
+                    Click="BtnStart_Click"/>
+            <Button x:Name="BtnStop" Content="Остановить" Height="30"
+                    Margin="0,6,0,0" IsEnabled="False"
+                    Click="BtnStop_Click"/>
+            <Button x:Name="BtnBench" Content="Замер ускорения" Height="30"
+                    Margin="0,6,0,0"
+                    Click="BtnBench_Click"/>
+
+            <TextBlock x:Name="TbStatus" Text="Готово" Margin="0,12,0,0"
+                       FontWeight="Bold" TextWrapping="Wrap"/>
+
+            <TextBlock x:Name="TbBest" Text="Лучшая длина: —"
+                       Margin="0,6,0,0" TextWrapping="Wrap"/>
+            <TextBlock x:Name="TbOrder" Text="Маршрут: —"
+                       Margin="0,6,0,0" TextWrapping="Wrap"/>
+
+            <TextBlock x:Name="TbBenchResult" Text=""
+                       Margin="0,10,0,0" TextWrapping="Wrap"
+                       FontFamily="Consolas" FontSize="11"/>
+        </StackPanel>
+        </ScrollViewer>
+
+        <!-- Правая часть: карта сверху, график снизу -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="220"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" BorderBrush="Gray" BorderThickness="1">
+                <Canvas x:Name="CanvasMap" Background="White" ClipToBounds="True"/>
+            </Border>
+
+            <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" Margin="0,8,0,0">
+                <Canvas x:Name="CanvasChart" Background="White" ClipToBounds="True"/>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
