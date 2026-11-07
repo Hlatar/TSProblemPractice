@@ -15,6 +15,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Элементы решен
 		.gitignore = .gitignore
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "сommivoy_service", "сommivoy_service\сommivoy_service.csproj", "{2E99603A-B010-4852-9232-130A56C339CA}"
+	ProjectSection(ProjectDependencies) = postProject
+		{F01B795E-C1FA-4151-8E41-0ED2C0324481} = {F01B795E-C1FA-4151-8E41-0ED2C0324481}
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "commivoy_service.Tests", "commivoy_service.Tests\commivoy_service.Tests.csproj", "{574D0520-2CD8-4097-9506-3E003A723CD6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -29,6 +36,14 @@ Global
 		{EFE16508-4CA2-4B1B-9FAD-6C55BCD3F73D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EFE16508-4CA2-4B1B-9FAD-6C55BCD3F73D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EFE16508-4CA2-4B1B-9FAD-6C55BCD3F73D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2E99603A-B010-4852-9232-130A56C339CA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2E99603A-B010-4852-9232-130A56C339CA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2E99603A-B010-4852-9232-130A56C339CA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2E99603A-B010-4852-9232-130A56C339CA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{574D0520-2CD8-4097-9506-3E003A723CD6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{574D0520-2CD8-4097-9506-3E003A723CD6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{574D0520-2CD8-4097-9506-3E003A723CD6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{574D0520-2CD8-4097-9506-3E003A723CD6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

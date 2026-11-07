@@ -38,8 +38,26 @@
             <TextBlock Text="Seed (пусто = случайный):"/>
             <TextBox x:Name="TbSeed" Text="42" Margin="0,0,0,12"/>
 
+            <!-- Блок распределенной сети -->
+            <TextBlock Text="Сервисы (IP:Port):" FontWeight="Bold" Margin="0,10,0,4"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="TbNewIp" Text="http://localhost:5001" Margin="0,0,4,0"/>
+                <Button Grid.Column="1" Content="+" Width="30" Margin="0,0,4,0" Click="BtnAddIp_Click"/>
+                <Button Grid.Column="2" Content="-" Width="30" Click="BtnRemoveIp_Click"/>
+            </Grid>
+
+            <!-- Добавили MouseDoubleClick для редактирования -->
+                <ListBox x:Name="LbIps" Height="60" Margin="0,4,0,8" MouseDoubleClick="LbIps_MouseDoubleClick">
+                </ListBox>
+            <!-- Конец блока сети -->
+
             <Button x:Name="BtnStart" Content="Запустить" Height="30"
-                    Click="BtnStart_Click"/>
+                Click="BtnStart_Click"/>
             <Button x:Name="BtnStop" Content="Остановить" Height="30"
                     Margin="0,6,0,0" IsEnabled="False"
                     Click="BtnStop_Click"/>

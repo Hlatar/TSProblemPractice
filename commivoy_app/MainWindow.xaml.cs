@@ -1,15 +1,19 @@
-﻿using System;
+﻿using commivoy;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using commivoy;
 
 namespace commivoy_app
 {
@@ -24,6 +28,8 @@ namespace commivoy_app
         public MainWindow()
         {
             InitializeComponent();
+            LbIps.Items.Add("http://localhost:5001");
+            LbIps.Items.Add("http://localhost:5002");
 
             int cores = Environment.ProcessorCount;
             TbThreads.Text = cores.ToString();
@@ -36,90 +42,182 @@ namespace commivoy_app
         }
 
 
+        private void BtnStop_Click(object sender, RoutedEventArgs e)
+        {
+            _cts?.Cancel();
+        }
 
-        // ============================================================
-        //  Обычный запуск
-        // ============================================================
+        private void BtnAddIp_Click(object sender, RoutedEventArgs e)
+        {
+            string ip = TbNewIp.Text.Trim();
+            if (!string.IsNullOrEmpty(ip) && !LbIps.Items.Contains(ip))
+            {
+                LbIps.Items.Add(ip);
+            }
+        }
+
+        // Удаление выбранного IP
+        private void BtnRemoveIp_Click(object sender, RoutedEventArgs e)
+        {
+            if (LbIps.SelectedItem != null)
+            {
+                LbIps.Items.Remove(LbIps.SelectedItem);
+            }
+            else
+            {
+                MessageBox.Show("Выберите сервис из списка, чтобы удалить его.", "Внимание", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        // Редактирование по двойному клику
+        private void LbIps_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (LbIps.SelectedItem != null)
+            {
+                string text = "";
+
+                // Проверяем, является ли выбранный элемент ListBoxItem
+                if (LbIps.SelectedItem is ListBoxItem item)
+                {
+                    text = item.Content.ToString();
+                }
+                else
+                {
+                    text = LbIps.SelectedItem.ToString();
+                }
+
+                TbNewIp.Text = text;
+                LbIps.Items.Remove(LbIps.SelectedItem);
+                TbNewIp.Focus();
+                TbNewIp.CaretIndex = TbNewIp.Text.Length;
+            }
+        }
+
+        // Заменяем ваш старый BtnStart_Click на этот:
         private async void BtnStart_Click(object sender, RoutedEventArgs e)
         {
-            if (!TryReadParams(out int n, out int pop, out int gens,
-                               out int threads, out double pm, out int? seed))
+            if (!TryReadParams(out int n, out int pop, out int gens, out int threads, out double pm, out int? seed))
                 return;
 
-            
+            if (LbIps.Items.Count == 0)
+            {
+                MessageBox.Show("Добавьте хотя бы один IP-адрес сервиса!");
+                return;
+            }
 
-
-            //n = 10;
-            //_coords = new double[10, 2];
-
-            //double R = 500.0;
-            //double cx = 500.0, cy = 500.0;
-
-            //for (int i = 0; i < 10; i++)
-            //{
-            //    double angle = 2 * Math.PI * i / 10;
-            //    _coords[i, 0] = cx + R * Math.Cos(angle);
-            //    _coords[i, 1] = cy + R * Math.Sin(angle);
-            //}
+            // Инициализируем токен отмены
+            _cts = new CancellationTokenSource();
+            var token = _cts.Token;
 
             var gen = new MatrixGenerator();
             _coords = gen.GenerateCoords(n, seed);
             double[,] d = gen.GenerateMatrix(_coords, n);
 
-            _maxGenerations = gens;   
+            double[][] matrixToSend = new double[n][];
+            for (int i = 0; i < n; i++)
+            {
+                matrixToSend[i] = new double[n];
+                for (int j = 0; j < n; j++)
+                {
+                    matrixToSend[i][j] = d[i, j];
+                }
+            }
+
+            _maxGenerations = gens;
             _history.Clear();
             _lastOrder = null;
             CanvasChart.Children.Clear();
             DrawCities();
 
-            var solver = new GeneticSolver(d, seed)
-            {
-                PopulationSize = pop,
-                MutationProb = pm,
-                MaxGenerations = gens,
-                Threads = threads,
-                EliteCount = 2
-            };
-
-            solver.OnGeneration += info =>
-                Dispatcher.Invoke(() => OnGenerationUI(info));
-
-            solver.OnNewBest += order =>
-                Dispatcher.Invoke(() =>
-                {
-                    _lastOrder = order;
-                    DrawRoute(order);
-                });
-
-            _cts = new CancellationTokenSource();
             BtnStart.IsEnabled = false;
             BtnStop.IsEnabled = true;
             BtnBench.IsEnabled = false;
-            TbStatus.Text = $"Идёт поиск... (потоков: {threads} из {Environment.ProcessorCount})";
+            TbStatus.Text = $"Отправка задач на {LbIps.Items.Count} сервисов...";
 
-            var token = _cts.Token;
             var sw = Stopwatch.StartNew();
-            var result = await Task.Run(() => solver.Solve(token));
-            sw.Stop();
+            var tasks = new List<Task<DistributedTaskResult>>();
+            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 
-            TbStatus.Text = token.IsCancellationRequested
-                ? $"Остановлено за {sw.ElapsedMilliseconds} мс"
-                : $"Готово за {sw.ElapsedMilliseconds} мс (потоков: {threads})";
-            TbBest.Text = $"Лучшая длина: {result.length:F2}";
-            TbOrder.Text = "Маршрут: " + string.Join(" → ", result.order);
+            int baseSeed = seed ?? Environment.TickCount;
+            int serviceCount = LbIps.Items.Count;
+            int cores = Environment.ProcessorCount;
+            int threadsPerService = Math.Max(1, cores / serviceCount);
 
-            _lastOrder = result.order;
-            DrawRoute(result.order);
-            DrawChart();
+            foreach (var ipObj in LbIps.Items)
+            {
+                string ip = (ipObj is ListBoxItem lbi) ? lbi.Content.ToString() : ipObj.ToString();
+                int currentSeed = baseSeed + ip.GetHashCode();
 
-            BtnStart.IsEnabled = true;
-            BtnStop.IsEnabled = false;
-            BtnBench.IsEnabled = true;
-        }
+                var request = new DistributedTaskRequest
+                {
+                    Distances = matrixToSend,
+                    Seed = currentSeed,
+                    PopulationSize = pop,
+                    MaxGenerations = gens,
+                    MutationProb = pm,
+                    Threads = threadsPerService
+                };
 
-        private void BtnStop_Click(object sender, RoutedEventArgs e)
-        {
-            _cts?.Cancel();
+                tasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Передаем token в HTTP-запрос
+                        var response = await client.PostAsJsonAsync($"{ip}/api/Ga/solve", request, token);
+                        response.EnsureSuccessStatusCode();
+                        var result = await response.Content.ReadFromJsonAsync<DistributedTaskResult>(cancellationToken: token);
+                        result.ServiceUrl = ip;
+                        return result;
+                    }
+                    catch
+                    {
+                        return new DistributedTaskResult { ServiceUrl = ip, BestLength = double.MaxValue, BestOrder = null };
+                    }
+                }, token));
+            }
+
+            try
+            {
+                var results = await Task.WhenAll(tasks);
+                sw.Stop();
+
+                if (token.IsCancellationRequested)
+                {
+                    TbStatus.Text = $"Остановлено пользователем за {sw.ElapsedMilliseconds} мс";
+                    return;
+                }
+
+                var validResults = results.Where(r => r.BestOrder != null).ToList();
+
+                if (validResults.Count == 0)
+                {
+                    TbStatus.Text = "Вычисление отменено или сервисы недоступны.";
+                    return;
+                }
+
+                var bestResult = validResults.OrderBy(r => r.BestLength).First();
+
+                TbStatus.Text = $"Готово за {sw.ElapsedMilliseconds} мс. Ответов: {validResults.Count}/{tasks.Count}";
+                TbBest.Text = $"Лучшая длина: {bestResult.BestLength:F2}";
+                TbOrder.Text = "Маршрут: " + string.Join(" → ", bestResult.BestOrder);
+
+                _lastOrder = bestResult.BestOrder;
+                DrawRoute(bestResult.BestOrder);
+
+                _history.Add(new GenerationInfo { Generation = 0, BestLength = bestResult.BestLength });
+                _history.Add(new GenerationInfo { Generation = _maxGenerations, BestLength = bestResult.BestLength });
+                DrawChart();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка выполнения: {ex.Message}");
+            }
+            finally
+            {
+                BtnStart.IsEnabled = true;
+                BtnStop.IsEnabled = false;
+                BtnBench.IsEnabled = true;
+            }
         }
 
         // ============================================================

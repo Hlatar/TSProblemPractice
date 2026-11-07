@@ -48,6 +48,26 @@ namespace commivoy
         }
     }
 
+    public class DistributedTaskRequest
+    {
+        // Используем ступенчатый массив (jagged array), так как 2D-массивы плохо передаются по сети в JSON
+        public double[][] Distances { get; set; }
+        public int Seed { get; set; }
+        public int PopulationSize { get; set; }
+        public int MaxGenerations { get; set; }
+        public double MutationProb { get; set; }
+        public int Threads { get; set; }
+    }
+
+    public class DistributedTaskResult
+    {
+        public int[] BestOrder { get; set; }
+        public double BestLength { get; set; }
+        public double ExecutionTimeMs { get; set; }
+        public string ServiceUrl { get; set; }
+    }
+    
+
     public class GeneticSolver
     {
         private readonly double[,] _d;

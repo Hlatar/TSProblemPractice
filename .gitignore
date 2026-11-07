@@ -1,9 +1,30 @@
+## Visual Studio cache and local settings
 .vs/
-
-bin/
-obj/
-Debug/
-Release/
-
 *.user
+*.userosscache
 *.suo
+*.userprefs
+
+## Build outputs (скомпилированные файлы)
+[Bb]in/
+[Oo]bj/
+[LLEe]og/
+[Ll]ogs/
+
+## Test results
+TestResults/
+*.trx
+
+## NuGet Packages
+*.nupkg
+packages/
+
+## Rider / JetBrains
+.idea/
+*.sln.docstates
+
+## OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+[Dd]s_[Ss]tore
