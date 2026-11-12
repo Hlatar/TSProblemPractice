@@ -6,8 +6,6 @@ using System.Threading.Tasks;
 
 namespace commivoy
 {
-    public class Algorithm { }
-
     public class GenerationInfo
     {
         public int Generation { get; set; }
@@ -48,36 +46,38 @@ namespace commivoy
         }
     }
 
-    public class DistributedTaskRequest
+    // Запрос на обработку одного среза [StartIndex, EndIndex) в рамках поколения Generation
+    public class SliceTaskRequest
     {
-        // Используем ступенчатый массив (jagged array), так как 2D-массивы плохо передаются по сети в JSON
-        public double[][] Distances { get; set; }
-        public int Seed { get; set; }
-        public int PopulationSize { get; set; }
-        public int MaxGenerations { get; set; }
+        public string TaskId { get; set; }
+        // Передаётся только в 0-м поколении (или при ретрае), далее сервер берёт из кэша по TaskId
+        public double[][]? Distances { get; set; }
+        public int[][] Population { get; set; }
+        public double[] Fitness { get; set; }
+        public int MasterSeed { get; set; }
+        public int Generation { get; set; }
+        public int StartIndex { get; set; }
+        public int EndIndex { get; set; }
         public double MutationProb { get; set; }
         public int Threads { get; set; }
     }
 
-    public class DistributedTaskResult
+    // Ответ сервера с посчитанным куском нового поколения
+    public class SliceTaskResult
     {
-        public int[] BestOrder { get; set; }
-        public double BestLength { get; set; }
+        public int StartIndex { get; set; }
+        public int EndIndex { get; set; }
+        public int[][] Offspring { get; set; }
+        public double[] OffspringFitness { get; set; }
         public double ExecutionTimeMs { get; set; }
-        public string ServiceUrl { get; set; }
     }
-    
 
     public class GeneticSolver
     {
         private readonly double[,] _d;
         private readonly int _n;
-
-        // базовый сид для воспроизводимости; null = случайный
         private readonly int _seedBase;
         private readonly bool _fixedSeed;
-
-        // Random только для однопоточных участков (инициализация, Shuffle)
         private readonly Random _initRnd;
 
         public int PopulationSize { get; set; } = 100;
@@ -95,54 +95,31 @@ namespace commivoy
         public event Action<GenerationInfo> OnGeneration;
         public event Action<int[]> OnNewBest;
 
-        // seed = null  → каждый запуск случайный
-        // seed = число → воспроизводимо от запуска к запуску
         public GeneticSolver(double[,] distances, int? seed = null)
         {
             _d = distances;
             _n = distances.GetLength(0);
-
             _fixedSeed = seed.HasValue;
             _seedBase = seed ?? Environment.TickCount;
             _initRnd = new Random(_seedBase);
         }
 
-        // ---------- Основной метод ----------
+        // Локальный запуск (используется в кнопке "Замер ускорения" и как эталон)
         public (int[] order, double length) Solve(CancellationToken ct)
         {
             if (_n == 0) return (Array.Empty<int>(), 0);
             if (_n == 1) return (new[] { 0 }, 0);
 
-            // Начальная популяция (однопоточно, детерминирована при fixed seed)
-            var pop = new List<int[]>(PopulationSize);
+            var pop = CreateInitialPopulation(_n, PopulationSize, _seedBase);
+            var fit = new double[PopulationSize];
             for (int i = 0; i < PopulationSize; i++)
-            {
-                var p = Enumerable.Range(0, _n).ToArray();
-                Shuffle(p, _initRnd);
-                pop.Add(p);
-            }
+                fit[i] = PathLength(pop[i], _d);
 
             int[] bestOrder = null;
             double bestLen = double.MaxValue;
 
-            //  Поколения
             for (int gen = 0; gen < MaxGenerations && !ct.IsCancellationRequested; gen++)
             {
-                //  Оценка приспособленности 
-                var fit = new double[pop.Count];
-                try
-                {
-                    Parallel.For(0, pop.Count,
-                        new ParallelOptions
-                        {
-                            CancellationToken = ct,
-                            MaxDegreeOfParallelism = Threads
-                        },
-                        i => fit[i] = PathLength(pop[i]));
-                }
-                catch (OperationCanceledException) { break; }
-
-                // Лучший в поколении
                 int bi = 0;
                 for (int i = 1; i < fit.Length; i++)
                     if (fit[i] < fit[bi]) bi = i;
@@ -162,67 +139,113 @@ namespace commivoy
                     BestOrder = (int[])bestOrder.Clone()
                 });
 
-                // Формируем новое поколение
-
-                // элита — клонируется последовательно
-                var sortedIdx = Enumerable.Range(0, pop.Count)
+                var sortedIdx = Enumerable.Range(0, PopulationSize)
                                           .OrderBy(i => fit[i])
                                           .ToList();
                 int elites = Math.Min(EliteCount, sortedIdx.Count);
 
                 var nextPop = new int[PopulationSize][];
+                var nextFit = new double[PopulationSize];
                 for (int k = 0; k < elites; k++)
+                {
                     nextPop[k] = (int[])pop[sortedIdx[k]].Clone();
+                    nextFit[k] = fit[sortedIdx[k]];
+                }
 
-                // остальные — параллельно
                 try
                 {
-                    Parallel.For(elites, PopulationSize,
-                        new ParallelOptions
-                        {
-                            CancellationToken = ct,
-                            MaxDegreeOfParallelism = Threads
-                        },
-                        i =>
-                        {
-                            // свой Random на каждую итерацию.
-                            // Если задан фиксированный seed — тоже детерминировано.
-                            int s = _fixedSeed
-                                ? unchecked(_seedBase + i * 7919)
-                                : unchecked(Environment.TickCount + i * 7919 + gen * 131);
-                            var rnd = new Random(s);
+                    var (slicePop, sliceFit) = EvolveSlice(
+                        _d, pop, fit, _seedBase, _fixedSeed, gen,
+                        elites, PopulationSize, MutationProb, Threads, ct);
 
-                            var parent = Tournament(pop, fit, rnd);
-                            var child = (int[])parent.Clone();
-
-                            if (rnd.NextDouble() < MutationProb)
-                                Mutate(child, rnd);
-
-                            TwoOpt(child, ct);
-
-                            nextPop[i] = child;
-                        });
+                    for (int idx = 0; idx < slicePop.Length; idx++)
+                    {
+                        nextPop[elites + idx] = slicePop[idx];
+                        nextFit[elites + idx] = sliceFit[idx];
+                    }
                 }
                 catch (OperationCanceledException) { break; }
 
-                pop = nextPop.ToList();
+                pop = nextPop;
+                fit = nextFit;
             }
 
             return (bestOrder, bestLen);
         }
 
-        // ---------- Вспомогательные ----------
-
-        private double PathLength(int[] order)
+        // Детерминированная генерация начальной популяции от одного MasterSeed
+        public static int[][] CreateInitialPopulation(int cityCount, int popSize, int masterSeed)
         {
+            var rnd = new Random(masterSeed);
+            var pop = new int[popSize][];
+            for (int i = 0; i < popSize; i++)
+            {
+                var p = Enumerable.Range(0, cityCount).ToArray();
+                Shuffle(p, rnd);
+                pop[i] = p;
+            }
+            return pop;
+        }
+
+        // Обработка одного диапазона особей [startIndex, endIndex) — вызывается и локально, и на серверах
+        public static (int[][] offspring, double[] offspringFitness) EvolveSlice(
+            double[,] d,
+            int[][] pop,
+            double[] fit,
+            int masterSeed,
+            bool fixedSeed,
+            int gen,
+            int startIndex,
+            int endIndex,
+            double mutationProb,
+            int threads,
+            CancellationToken ct)
+        {
+            int count = Math.Max(0, endIndex - startIndex);
+            var resultPop = new int[count][];
+            var resultFit = new double[count];
+            int n = d.GetLength(0);
+
+            Parallel.For(startIndex, endIndex,
+                new ParallelOptions
+                {
+                    CancellationToken = ct,
+                    MaxDegreeOfParallelism = Math.Max(1, threads)
+                },
+                i =>
+                {
+                    int s = fixedSeed
+                        ? unchecked(masterSeed + i * 7919 + gen * 104729)
+                        : unchecked(Environment.TickCount + i * 7919 + gen * 131);
+                    var rnd = new Random(s);
+
+                    var parent = Tournament(pop, fit, rnd);
+                    var child = (int[])parent.Clone();
+
+                    if (rnd.NextDouble() < mutationProb)
+                        Mutate(child, rnd);
+
+                    TwoOpt(child, d, n, ct);
+
+                    int localIdx = i - startIndex;
+                    resultPop[localIdx] = child;
+                    resultFit[localIdx] = PathLength(child, d);
+                });
+
+            return (resultPop, resultFit);
+        }
+
+        public static double PathLength(int[] order, double[,] d)
+        {
+            int n = order.Length;
             double s = 0;
-            for (int i = 0; i < _n - 1; i++)
-                s += _d[order[i], order[i + 1]];
-            s += _d[order[_n - 1], order[0]];
+            for (int i = 0; i < n - 1; i++)
+                s += d[order[i], order[i + 1]];
+            s += d[order[n - 1], order[0]];
             return s;
         }
 
-        private void Shuffle(int[] a, Random rnd)
+        private static void Shuffle(int[] a, Random rnd)
         {
             for (int i = a.Length - 1; i > 0; i--)
             {
@@ -231,22 +254,21 @@ namespace commivoy
             }
         }
 
-        private int[] Tournament(List<int[]> pop, double[] fit, Random rnd)
+        private static int[] Tournament(int[][] pop, double[] fit, Random rnd)
         {
-            int a = rnd.Next(pop.Count);
-            int b = rnd.Next(pop.Count);
+            int a = rnd.Next(pop.Length);
+            int b = rnd.Next(pop.Length);
             return fit[a] <= fit[b] ? pop[a] : pop[b];
         }
 
-        private void Mutate(int[] order, Random rnd)
+        private static void Mutate(int[] order, Random rnd)
         {
             int i = rnd.Next(order.Length);
             int j = rnd.Next(order.Length);
             (order[i], order[j]) = (order[j], order[i]);
         }
 
-        // 2-opt
-        private void TwoOpt(int[] route, CancellationToken ct)
+        private static void TwoOpt(int[] route, double[,] d, int n, CancellationToken ct)
         {
             bool improved = true;
             while (improved)
@@ -254,15 +276,15 @@ namespace commivoy
                 if (ct.IsCancellationRequested) return;
                 improved = false;
 
-                for (int i = 0; i < _n - 1; i++)
+                for (int i = 0; i < n - 1; i++)
                 {
-                    for (int j = i + 2; j < _n; j++)
+                    for (int j = i + 2; j < n; j++)
                     {
-                        if (i == 0 && j == _n - 1) continue;
+                        if (i == 0 && j == n - 1) continue;
                         int a = route[i], b = route[i + 1];
-                        int c = route[j], d = route[(j + 1) % _n];
+                        int c = route[j], e = route[(j + 1) % n];
 
-                        if (_d[a, c] + _d[b, d] < _d[a, b] + _d[c, d])
+                        if (d[a, c] + d[b, e] < d[a, b] + d[c, e])
                         {
                             Array.Reverse(route, i + 1, j - i);
                             improved = true;
